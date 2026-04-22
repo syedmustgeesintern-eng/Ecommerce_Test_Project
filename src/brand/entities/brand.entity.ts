@@ -21,10 +21,10 @@ export class Brand {
   @Column()
   phone: string;
 
-  @Column()
+ @Column({ nullable: true })
   logo_url: string;
 
-  @Column()
+  @Column({ nullable: true })
   support_email: string;
 
   @Column({ type: 'enum', enum: ['ACTIVE', 'SUSPENDED'], default: 'ACTIVE' })

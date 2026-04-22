@@ -2,20 +2,21 @@ import { Module } from '@nestjs/common';
 import { JwtModule, JwtModuleOptions } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
-import { TypeOrmModule } from '@nestjs/typeorm';
-import { User } from '../user/entities/user.entity';
-import { JwtStrategy } from '../../utils/strategies/jwt.strategy';
+import { JwtStrategy } from '../utils/strategies/jwt.strategy';
+import { BrandModule } from '../brand/brand.module';
+import { UserModule } from 'src/user/user.module';
 
 @Module({
   imports: [
-    PassportModule,
- TypeOrmModule.forFeature([User]),
+    UserModule,
+    BrandModule,
+    PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
-      imports: [ConfigModule],
+      imports: [ConfigModule, UserModule, BrandModule],
       inject: [ConfigService],
+      
 
       useFactory: (configService: ConfigService): JwtModuleOptions => {
         const secret = configService.get<string>('JWT_SECRET');
@@ -29,7 +30,6 @@ import { JwtStrategy } from '../../utils/strategies/jwt.strategy';
           secret,
           signOptions: {
             expiresIn: expiresIn as any,
- 
           },
         };
       },

@@ -1,4 +1,4 @@
-import { Brand } from '../../brand/entities/brand.entity';
+import { Brand } from 'src/brand/entities/brand.entity';
 import {
   Entity,
   PrimaryGeneratedColumn,

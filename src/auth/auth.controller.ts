@@ -1,6 +1,6 @@
 import { Body, Controller, Post } from '@nestjs/common';
 import { AuthService } from './auth.service';
-import { SignupCustomerDto } from '../user/dto/signup-customer.dto';
+import { SignupCustomerDto } from 'src/user/dto/signup-customer.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -20,8 +20,8 @@ export class AuthController {
   signupCustomer(@Body() dto: SignupCustomerDto) {
     return this.authService.signupCustomer(dto);
   }
-   @Post('verify-otp')
-  verifyCustomerOtp(@Body() body: { email: string; otp: string }) {
-    return this.authService.verifyCustomerOtp(body.email, body.otp);
-  }
+@Post('verify-otp')
+verifyOtp(@Body() body: { email: string; otp: string }) {
+  return this.authService.verifyOtp(body.email, body.otp);
+}
 }

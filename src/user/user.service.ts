@@ -22,6 +22,33 @@ export class UserService {
   }
 
 
+  async createBrandOwnerUser(email: string, password: string, brandId: string) {
+  const user = this.userRepo.create({
+    name: null,
+    email,
+    password,
+    role: 'BRAND_OWNER',
+    brandId,
+  });
+
+  return await this.userRepo.save(user);
+}
+async findByEmail(email: string) {
+  return this.userRepo.findOne({
+    where: { email },
+  });
+}
+async createCustomerUser(dto: any, hashedPassword: string) {
+  const user = this.userRepo.create({
+    name: dto.name,
+    email: dto.email,
+    password: hashedPassword,
+    role: 'CUSTOMER',
+  });
+
+  return await this.userRepo.save(user);
+}
+
   async getAllUsers(limit: number, cursor?: string) {
     try {
       const take = Number(limit);

@@ -2,7 +2,7 @@ import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards,Request, Q
 import { UserService } from './user.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
-import { JwtAuthGuard } from '../../utils/guards/jwt-auth.guard';
+import { JwtAuthGuard } from 'src/utils/guards/jwt-auth.guard';
 
 @Controller('user')
 export class UserController {
