@@ -71,6 +71,6 @@ export class BrandController {
     @Req() req,
   ) {
      console.log('🚀 Controller User:', req.user);
-    return this.brandService.updateBrand(id, dto, file, req.user);
+return this.brandService.updateBrand(id, dto, req.user, file);
   }
 }

@@ -1,6 +1,10 @@
-import { Body, Controller, Post } from '@nestjs/common';
+import { Body, Controller, Patch, Post, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { SignupCustomerDto } from 'src/user/dto/signup-customer.dto';
+import { JwtAuthGuard } from 'src/utils/guards/jwt-auth.guard';
+import { CurrentUser } from 'src/utils/decorators/current-user/current-user.decorator';
+import type { JwtUser } from 'src/utils/types/jwt-user.type';
+import { ChangePasswordDto } from './dto/change-password.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -20,8 +24,23 @@ export class AuthController {
   signupCustomer(@Body() dto: SignupCustomerDto) {
     return this.authService.signupCustomer(dto);
   }
-@Post('verify-otp')
-verifyOtp(@Body() body: { email: string; otp: string }) {
-  return this.authService.verifyOtp(body.email, body.otp);
-}
+  @Post('verify-otp')
+  verifyOtp(@Body() body: { email: string; otp: string }) {
+    return this.authService.verifyOtp(body.email, body.otp);
+  }
+  @Patch('change-password')
+  @UseGuards(JwtAuthGuard)
+  changePassword(@CurrentUser() user: JwtUser, @Body() dto: ChangePasswordDto) {
+    return this.authService.changePassword(user, dto);
+  }
+
+  @Post('forgot-password')
+  forgotPassword(@Body('email') email: string) {
+    return this.authService.forgotPassword(email);
+  }
+
+  @Post('reset-password')
+  resetPassword(@Body() body: { token: string; newPassword: string }) {
+    return this.authService.resetPassword(body.token, body.newPassword);
+  }
 }

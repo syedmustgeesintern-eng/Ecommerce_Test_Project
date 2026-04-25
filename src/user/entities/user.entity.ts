@@ -1,4 +1,4 @@
-import { Brand } from 'src/brand/entities/brand.entity';
+import { Brand } from '../../brand/entities/brand.entity';
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -14,10 +14,10 @@ export class User {
   id: string;
 
   @Column({
-  type: 'varchar',   
-  nullable: true,
-})
-name: string | null;
+    type: 'varchar',
+    nullable: true,
+  })
+  name: string | null;
 
   @Column({ unique: true })
   email: string;
@@ -41,4 +41,10 @@ name: string | null;
 
   @CreateDateColumn()
   created_at: Date;
+
+  @Column({ type: 'varchar', nullable: true })
+  resetToken: string | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  resetTokenExpiry: Date | null;
 }

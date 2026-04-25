@@ -10,6 +10,7 @@ import { MailerModule } from './libs/mail/mailer.module';
 import { RedisModule } from './libs/redis/redis.module';
 import { S3Module } from './libs/s3/s3.module';
 import { UserModule } from './user/user.module';
+import { JwtStrategy } from './utils/strategies/jwt.strategy';
 
 @Module({
   imports: [
@@ -36,6 +37,6 @@ import { UserModule } from './user/user.module';
     S3Module,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [AppService,JwtStrategy],
 })
 export class AppModule {}

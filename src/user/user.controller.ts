@@ -1,8 +1,21 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards,Request, Query } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Param,
+  Delete,
+  UseGuards,
+  Request,
+  Query,
+} from '@nestjs/common';
 import { UserService } from './user.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { JwtAuthGuard } from 'src/utils/guards/jwt-auth.guard';
+import type { JwtUser } from 'src/utils/types/jwt-user.type';
+import { CurrentUser } from 'src/utils/decorators/current-user/current-user.decorator';
 
 @Controller('user')
 export class UserController {
@@ -13,19 +26,25 @@ export class UserController {
     return this.userService.create(createUserDto);
   }
   @UseGuards(JwtAuthGuard)
-@Get('me')
-getMe(@Request() req) {
-  return this.userService.getMe(req.user);
-}
-@Get()
-getAllUsers(
-  @Query('limit') limit = 10,
-  @Query('cursor') cursor?: string,
-) {
-  return this.userService.getAllUsers(limit, cursor);
-}
-
-
+  @Get('me')
+  getMe(@Request() req) {
+    return this.userService.getMe(req.user);
+  }
+  @Patch('me')
+  @UseGuards(JwtAuthGuard)
+  updateMe(
+    @CurrentUser() user: JwtUser,
+    @Body() dto: UpdateUserDto,
+  ) {
+    console.log('JWT USER:', user);
+    console.log('USER ID TYPE:', typeof user.userId);
+  
+    return this.userService.updateUserInfo(user.userId, dto);
+  }
+  @Get()
+  getAllUsers(@Query('limit') limit = 10, @Query('cursor') cursor?: string) {
+    return this.userService.getAllUsers(limit, cursor);
+  }
 
   @Get(':id')
   findOne(@Param('id') id: string) {
@@ -41,4 +60,6 @@ getAllUsers(
   remove(@Param('id') id: string) {
     return this.userService.remove(+id);
   }
+
+
 }
