@@ -254,21 +254,11 @@ export class AuthService {
   async resetPassword(token: string, newPassword: string) {
     const user = await this.userService.findByResetToken(token);
 
-    // ❌ token invalid
-    if (!user || !user.resetTokenExpiry) {
-      throw new BadRequestException('Invalid token');
-    }
-
-    // ❌ token expired
-    if (user.resetTokenExpiry < new Date()) {
-      throw new BadRequestException('Token expired');
-    }
-
     const hashed = await hashPassword(newPassword);
 
     await this.userService.updatePassword(user.id, hashed);
 
-    // ✅ VERY IMPORTANT (single-use)
+    // (single-use)
     await this.userService.clearResetToken(user.id);
 
     return { message: 'Password reset successful' };

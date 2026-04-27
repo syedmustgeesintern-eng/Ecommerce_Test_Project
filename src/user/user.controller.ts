@@ -32,13 +32,7 @@ export class UserController {
   }
   @Patch('me')
   @UseGuards(JwtAuthGuard)
-  updateMe(
-    @CurrentUser() user: JwtUser,
-    @Body() dto: UpdateUserDto,
-  ) {
-    console.log('JWT USER:', user);
-    console.log('USER ID TYPE:', typeof user.userId);
-  
+  updateMe(@CurrentUser() user: JwtUser, @Body() dto: UpdateUserDto) {
     return this.userService.updateUserInfo(user.userId, dto);
   }
   @Get()
@@ -60,6 +54,4 @@ export class UserController {
   remove(@Param('id') id: string) {
     return this.userService.remove(+id);
   }
-
-
 }

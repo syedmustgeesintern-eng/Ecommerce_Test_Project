@@ -18,16 +18,7 @@ import { JwtStrategy } from './utils/strategies/jwt.strategy';
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        type: 'postgres',
-        host: configService.getOrThrow('DB_HOST'),
-        port: Number(configService.getOrThrow('DB_PORT')),
-        username: configService.getOrThrow('DB_USER'),
-        password: configService.getOrThrow('DB_PASS'),
-        database: configService.getOrThrow('DB_NAME'),
-        autoLoadEntities: true,
-        synchronize: false,
-      }),
+      useFactory: databaseConfig,
     }),
     BrandModule,
     UserModule,
@@ -37,6 +28,6 @@ import { JwtStrategy } from './utils/strategies/jwt.strategy';
     S3Module,
   ],
   controllers: [AppController],
-  providers: [AppService,JwtStrategy],
+  providers: [AppService, JwtStrategy],
 })
 export class AppModule {}
