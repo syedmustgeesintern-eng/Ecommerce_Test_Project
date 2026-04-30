@@ -25,7 +25,6 @@ export class BrandService {
     @InjectRepository(Brand)
     private brandRepo: Repository<Brand>,
     private userService: UserService,
-
     private mailerService: MailerService,
     private redisService: RedisService,
     private s3Service: S3Service,
@@ -54,7 +53,7 @@ export class BrandService {
         dto: { ...dto, logoUrl },
       };
 
-await this.redisService.set(`otp:${dto.email}`, payload, 43200);
+      await this.redisService.set(`otp:${dto.email}`, payload, 43200);
 
       this.mailerService.sendBrandOtp(dto.email, otp);
 

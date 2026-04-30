@@ -214,6 +214,9 @@ export class AuthService {
   //handler function
   private async handleForgotPassword(email: string) {
     const user = await this.userService.findByEmail(email);
+    if (!user) {
+      throw new BadRequestException('User not found');
+    }
 
     const token = uuid();
 
@@ -234,7 +237,10 @@ export class AuthService {
     };
   }
   async forgotPassword(email: string) {
-    await this.userService.findByEmail(email);
+    const user = await this.userService.findByEmail(email);
+    if (!user) {
+      throw new BadRequestException('User not found');
+    }
     const otp = generateOtp();
 
     await this.redisService.set(

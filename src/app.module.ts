@@ -11,6 +11,8 @@ import { RedisModule } from './libs/redis/redis.module';
 import { S3Module } from './libs/s3/s3.module';
 import { UserModule } from './user/user.module';
 import { JwtStrategy } from './utils/strategies/jwt.strategy';
+import { ProductModule } from './product/product.module';
+import { CategoryModule } from './category/category.module';
 
 @Module({
   imports: [
@@ -26,6 +28,8 @@ import { JwtStrategy } from './utils/strategies/jwt.strategy';
     MailerModule,
     RedisModule,
     S3Module,
+    ProductModule,
+    CategoryModule
   ],
   controllers: [AppController],
   providers: [AppService, JwtStrategy],
