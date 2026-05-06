@@ -79,4 +79,41 @@ If you did not request this, ignore this email.
   });
 }
 
+  async sendImportCompletionSummary(params: {
+    email: string;
+    totalRows: number;
+    successRows: number;
+    failedRows: number;
+    failureCsvUrl?: string | null;
+  }) {
+    const failureLinkText = params.failureCsvUrl
+      ? `Failure CSV: ${params.failureCsvUrl}`
+      : 'Failure CSV: N/A';
+
+    await this.transporter.sendMail({
+      from: 'no-reply@system.com',
+      to: params.email,
+      subject: 'Product Import Completed',
+      text: `
+Your product import has completed.
+
+Total rows: ${params.totalRows}
+Success rows: ${params.successRows}
+Failed rows: ${params.failedRows}
+${failureLinkText}
+      `,
+      html: `
+        <h3>Product Import Completed</h3>
+        <p><strong>Total rows:</strong> ${params.totalRows}</p>
+        <p><strong>Success rows:</strong> ${params.successRows}</p>
+        <p><strong>Failed rows:</strong> ${params.failedRows}</p>
+        <p><strong>Failure CSV:</strong> ${
+          params.failureCsvUrl
+            ? `<a href="${params.failureCsvUrl}" target="_blank" rel="noopener noreferrer">Download</a>`
+            : 'N/A'
+        }</p>
+      `,
+    });
+  }
+
 }

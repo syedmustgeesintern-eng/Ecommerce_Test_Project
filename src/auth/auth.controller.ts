@@ -1,7 +1,15 @@
-import { Body, Controller, Patch, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Patch,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { SignupCustomerDto } from 'src/user/dto/signup-customer.dto';
 import { JwtAuthGuard } from 'src/utils/guards/jwt-auth.guard';
+import { RefreshAuthGuard } from 'src/utils/guards/refresh-auth.guard';
 import { CurrentUser } from 'src/utils/decorators/current-user/current-user.decorator';
 import type { JwtUser } from 'src/utils/types/jwt-user.type';
 import { ChangePasswordDto } from './dto/change-password.dto';
@@ -16,8 +24,9 @@ export class AuthController {
   }
 
   @Post('refresh')
-  refresh(@Body() body: { refreshToken: string }) {
-    return this.authService.refreshToken(body.refreshToken);
+  @UseGuards(RefreshAuthGuard)
+  refresh(@Req() req: any) {
+    return this.authService.refreshTokenWithPayload(req.user);
   }
 
   @Post('signup')

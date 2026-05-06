@@ -4,6 +4,8 @@ import { AppService } from './app.service';
 import { BrandModule } from './brand/brand.module';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { BullModule } from '@nestjs/bullmq';
+import { ScheduleModule } from '@nestjs/schedule';
 import { databaseConfig } from './database/database.config';
 import { AuthModule } from './auth/auth.module';
 import { MailerModule } from './libs/mail/mailer.module';
@@ -13,6 +15,7 @@ import { UserModule } from './user/user.module';
 import { JwtStrategy } from './utils/strategies/jwt.strategy';
 import { ProductModule } from './product/product.module';
 import { CategoryModule } from './category/category.module';
+import { ImportModule } from './import/import.module';
 
 @Module({
   imports: [
@@ -22,6 +25,16 @@ import { CategoryModule } from './category/category.module';
       inject: [ConfigService],
       useFactory: databaseConfig,
     }),
+    BullModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        connection: {
+          url: configService.get<string>('REDIS_URL') || 'redis://localhost:6379',
+        },
+      }),
+    }),
+    ScheduleModule.forRoot(),
     BrandModule,
     UserModule,
     AuthModule,
@@ -29,7 +42,8 @@ import { CategoryModule } from './category/category.module';
     RedisModule,
     S3Module,
     ProductModule,
-    CategoryModule
+    CategoryModule,
+    ImportModule,
   ],
   controllers: [AppController],
   providers: [AppService, JwtStrategy],

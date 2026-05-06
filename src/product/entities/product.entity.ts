@@ -19,6 +19,14 @@ export class Product {
   @Column({ type: 'decimal', nullable: true })
   basePrice: number;
 
+  /**
+   * Canonical / default SKU on the product row. For a single-default-variant product,
+   * this matches the default variant SKU. For multi-variant products it may be omitted
+   * or used as a merchandising / parent reference depending on your storefront.
+   */
+  @Column({ type: 'varchar', nullable: true })
+  sku: string | null;
+
   @ManyToOne(() => Brand, (b) => b.id)
   brand: Brand;
 

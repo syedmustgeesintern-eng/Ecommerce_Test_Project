@@ -45,7 +45,8 @@ export class BrandService {
       let logoUrl: string | null = null;
       if (file) {
         console.log(file.size);
-        logoUrl = await this.s3Service.uploadFile(file);
+        const uploaded = await this.s3Service.uploadFile(file, 'brands');
+        logoUrl = uploaded.url;
       }
       const payload = {
         type: 'BRAND',
@@ -184,7 +185,8 @@ export class BrandService {
     let logoUrl: string | undefined;
 
     if (file) {
-      logoUrl = await this.s3Service.uploadFile(file);
+      const uploaded = await this.s3Service.uploadFile(file, 'brands');
+      logoUrl = uploaded.url;
     }
 
     const updatedBrand = {
