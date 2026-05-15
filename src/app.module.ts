@@ -16,6 +16,8 @@ import { JwtStrategy } from './utils/strategies/jwt.strategy';
 import { ProductModule } from './product/product.module';
 import { CategoryModule } from './category/category.module';
 import { ImportModule } from './import/import.module';
+import { CartModule } from './cart/cart.module';
+import { OrderModule } from './order/order.module';
 
 @Module({
   imports: [
@@ -44,6 +46,8 @@ import { ImportModule } from './import/import.module';
     ProductModule,
     CategoryModule,
     ImportModule,
+    CartModule,
+    OrderModule,
   ],
   controllers: [AppController],
   providers: [AppService, JwtStrategy],

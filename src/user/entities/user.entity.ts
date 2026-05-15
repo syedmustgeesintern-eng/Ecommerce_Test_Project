@@ -4,9 +4,13 @@ import {
   PrimaryGeneratedColumn,
   Column,
   ManyToOne,
+  OneToMany,
+  OneToOne,
   JoinColumn,
   CreateDateColumn,
 } from 'typeorm';
+import { ProductReview } from '../../product/entities/product-review.entity';
+import { Address } from './address.entity';
 
 @Entity('users')
 export class User {
@@ -47,4 +51,17 @@ export class User {
 
   @Column({ type: 'timestamp', nullable: true })
   resetTokenExpiry: Date | null;
+
+  @OneToMany(() => ProductReview, (review) => review.user)
+  reviews: ProductReview[];
+
+  @OneToMany(() => Address, (address) => address.user)
+  addresses: Address[];
+
+  @Column({ type: 'uuid', nullable: true })
+  defaultAddressId: string | null;
+
+  @OneToOne(() => Address, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'defaultAddressId' })
+  defaultAddress?: Address;
 }

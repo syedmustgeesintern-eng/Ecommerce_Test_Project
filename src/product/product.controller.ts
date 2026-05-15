@@ -12,16 +12,22 @@ import {
   UploadedFiles,
   UseGuards,
   UseInterceptors,
+  ValidationPipe,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ProductService } from './product.service';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { ProductReviewService } from './product-review.service';
+import { AddReviewDto } from './dto/add-review.dto';
 
 @Controller('products')
 export class ProductController {
-  constructor(private productService: ProductService) {}
+  constructor(
+    private productService: ProductService,
+    private productReviewService: ProductReviewService,
+  ) {}
   @Post()
   @UseGuards(AuthGuard('jwt'))
   @UseInterceptors(
@@ -67,6 +73,37 @@ export class ProductController {
   @Get(':id')
   getProductById(@Param('id') id: string) {
     return this.productService.getProductById(id);
+  }
+
+  @Post(':id/reviews')
+  @UseGuards(AuthGuard('jwt'))
+  addOrUpdateReview(
+    @Param('id') productId: string,
+    @Body(
+      new ValidationPipe({
+        transform: true,
+        whitelist: true,
+        forbidNonWhitelisted: true,
+      }),
+    )
+    dto: AddReviewDto,
+    @Req() req: any,
+  ) {
+    return this.productReviewService.addOrUpdateReview(
+      productId,
+      req.user.userId,
+      dto,
+    );
+  }
+
+  @Get(':id/reviews')
+  getProductReviews(@Param('id') productId: string) {
+    return this.productReviewService.getProductReviews(productId);
+  }
+
+  @Get(':id/rating')
+  getProductRating(@Param('id') productId: string) {
+    return this.productReviewService.getProductRating(productId);
   }
 
   @Patch(':id')

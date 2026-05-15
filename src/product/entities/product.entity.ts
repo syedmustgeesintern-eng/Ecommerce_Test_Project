@@ -1,9 +1,11 @@
 import { Brand } from "../../brand/entities/brand.entity";
-import { Column, CreateDateColumn, Entity, Index, JoinTable, ManyToMany, ManyToOne, OneToMany, PrimaryGeneratedColumn, UpdateDateColumn } from "typeorm";
+import { Column, CreateDateColumn, Entity, Index, JoinTable, ManyToMany, ManyToOne, OneToMany, OneToOne, PrimaryGeneratedColumn, UpdateDateColumn } from "typeorm";
 import { ProductAttribute } from "./product-attribute.entity";
 import { ProductVariant } from "./product-variant.entity";
 import { ProductImage } from "./product-image.entity";
 import { Category } from "../../category/entities/category.entity";
+import { ProductReview } from "./product-review.entity";
+import { ProductRating } from "./product-rating.entity";
 
 @Entity('products')
 export class Product {
@@ -42,6 +44,12 @@ export class Product {
 
   @OneToMany(() => ProductImage, (img) => img.product)
   images: ProductImage[];
+
+  @OneToMany(() => ProductReview, (review) => review.product)
+  reviews: ProductReview[];
+
+  @OneToOne(() => ProductRating, (rating) => rating.product)
+  rating: ProductRating;
 
   @Index()
   @CreateDateColumn()

@@ -10,21 +10,26 @@ import { S3Module } from 'src/libs/s3/s3.module';
 import { ProductController } from './product.controller';
 import { ProductService } from './product.service';
 import { Category } from 'src/category/entities/category.entity';
+import { ProductReview } from './entities/product-review.entity';
+import { ProductRating } from './entities/product-rating.entity';
+import { ProductReviewService } from './product-review.service';
 
 @Module({
-    imports: [
-        TypeOrmModule.forFeature([
-            Product,
-            Category,
-            ProductAttribute,
-            AttributeValue,
-            ProductVariant,
-            VariantAttributeValue,
-            ProductImage,
-        ]),
-        S3Module,
-    ],
-    controllers: [ProductController],
-    providers: [ProductService],
+  imports: [
+    TypeOrmModule.forFeature([
+      Product,
+      Category,
+      ProductAttribute,
+      AttributeValue,
+      ProductVariant,
+      VariantAttributeValue,
+      ProductImage,
+      ProductReview,
+      ProductRating,
+    ]),
+    S3Module,
+  ],
+  controllers: [ProductController],
+  providers: [ProductService, ProductReviewService],
 })
 export class ProductModule {}

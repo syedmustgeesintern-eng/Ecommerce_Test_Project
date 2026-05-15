@@ -12,48 +12,53 @@ export class ImportReporterService {
   ) {}
 
   async uploadFailureCsv(
-    importJobId: string,
-    failedRows: ImportFailureRow[],
-  ): Promise<{ key: string; url: string } | null> {
-    if (!failedRows.length) {
-      return null;
-    }
+  importJobId: string,
+  failedRows: ImportFailureRow[],
+): Promise<{ key: string; url: string } | null> {
+  if (!failedRows.length) return null;
 
-    const csvStringifier = createObjectCsvStringifier({
-      header: [
-        { id: 'sku', title: 'Sku' },
-        { id: 'error', title: 'Error' },
-        { id: 'rawData', title: 'RawData' },
-      ],
-    });
+  // Step 1: Get dynamic headers from rawData
+  const sampleRow = failedRows[0].rawData;
+  const dynamicHeaders = Object.keys(sampleRow);
 
-    const csvBodyRows = failedRows.map((row) => ({
-      sku: row.sku,
-      error: row.error,
-      rawData: JSON.stringify(row.rawData),
-    }));
+  const csvStringifier = createObjectCsvStringifier({
+    header: [
+      ...dynamicHeaders.map((key) => ({
+        id: key,
+        title: key,
+      })),
+      { id: 'error', title: 'Error' }, // add error column at end
+    ],
+  });
 
-    const csvContent =
-      csvStringifier.getHeaderString() +
-      csvStringifier.stringifyRecords(csvBodyRows);
+  // Step 2: Map rows preserving original structure
+  const csvBodyRows = failedRows.map((row) => ({
+    ...row.rawData,   // original columns 그대로
+    error: row.error, // error column
+  }));
 
-    const errorFileName = `import-errors-${importJobId}.csv`;
-    const errorFile: Express.Multer.File = {
-      fieldname: 'file',
-      originalname: errorFileName,
-      encoding: '7bit',
-      mimetype: 'text/csv',
-      size: Buffer.byteLength(csvContent),
-      buffer: Buffer.from(csvContent),
-      stream: null as any,
-      destination: '',
-      filename: errorFileName,
-      path: '',
-    };
+  const csvContent =
+    csvStringifier.getHeaderString() +
+    csvStringifier.stringifyRecords(csvBodyRows);
 
-    const uploaded = await this.s3Service.uploadFile(errorFile, 'imports/errors');
-    return { key: uploaded.key, url: uploaded.url };
-  }
+  const errorFileName = `import-errors-${importJobId}.csv`;
+
+  const errorFile: Express.Multer.File = {
+    fieldname: 'file',
+    originalname: errorFileName,
+    encoding: '7bit',
+    mimetype: 'text/csv',
+    size: Buffer.byteLength(csvContent),
+    buffer: Buffer.from(csvContent),
+    stream: null as any,
+    destination: '',
+    filename: errorFileName,
+    path: '',
+  };
+
+  const uploaded = await this.s3Service.uploadFile(errorFile, 'imports/errors');
+  return { key: uploaded.key, url: uploaded.url };
+}
 
   async sendCompletionEmail(params: {
     email: string;

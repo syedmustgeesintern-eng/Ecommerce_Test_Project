@@ -73,6 +73,24 @@ export class ProductService {
           images: variant.images?.map((img) => img.url) || [],
         })) || [],
       images: product.images?.map((img) => img.url) || [],
+      rating: {
+        averageRating: Number(product.rating?.averageRating ?? 0),
+        totalRatings: product.rating?.totalRatings ?? 0,
+      },
+      reviews:
+        product.reviews?.map((review) => ({
+          id: review.id,
+          rating: review.rating,
+          review: review.review,
+          user: review.user
+            ? {
+                id: review.user.id,
+                name: review.user.name,
+              }
+            : undefined,
+          createdAt: review.createdAt,
+          updatedAt: review.updatedAt,
+        })) || [],
       createdAt: product.createdAt,
       updatedAt: product.updatedAt,
     };
@@ -263,6 +281,7 @@ export class ProductService {
       .leftJoinAndSelect('attrValue.attribute', 'attr')
       .leftJoinAndSelect('product.images', 'productImages')
       .leftJoinAndSelect('variant.images', 'variantImages')
+      .leftJoinAndSelect('product.rating', 'rating')
       .where('product.brandId = :brandId', { brandId })
       .orderBy('product.createdAt', 'DESC')
       .take(take + 1);
@@ -299,6 +318,7 @@ export class ProductService {
       .leftJoinAndSelect('attrValue.attribute', 'attr')
       .leftJoinAndSelect('product.images', 'productImages')
       .leftJoinAndSelect('variant.images', 'variantImages')
+      .leftJoinAndSelect('product.rating', 'rating')
       .orderBy('product.createdAt', 'DESC')
       .take(take + 1);
 
@@ -321,18 +341,24 @@ export class ProductService {
   }
 
   async getProductById(productId: string) {
-    const product = await this.productRepo.findOne({
-      where: { id: productId },
-      relations: {
-        categories: true,
-        attributes: { values: true },
-        variants: {
-          attributeValues: { attributeValue: { attribute: true } },
-          images: true,
-        },
-        images: true,
-      },
-    });
+    const product = await this.productRepo
+      .createQueryBuilder('product')
+      .leftJoinAndSelect('product.categories', 'category')
+      .leftJoinAndSelect('product.attributes', 'attribute')
+      .leftJoinAndSelect('attribute.values', 'attributeValues')
+      .leftJoinAndSelect('product.variants', 'variant')
+      .leftJoinAndSelect('variant.attributeValues', 'vav')
+      .leftJoinAndSelect('vav.attributeValue', 'attrValue')
+      .leftJoinAndSelect('attrValue.attribute', 'attr')
+      .leftJoinAndSelect('product.images', 'productImages')
+      .leftJoinAndSelect('variant.images', 'variantImages')
+      .leftJoinAndSelect('product.rating', 'rating')
+      .leftJoinAndSelect('product.reviews', 'review')
+      .leftJoin('review.user', 'reviewUser')
+      .addSelect(['reviewUser.id', 'reviewUser.name'])
+      .where('product.id = :productId', { productId })
+      .orderBy('review.createdAt', 'DESC')
+      .getOne();
 
     if (!product) {
       throw new NotFoundException('Product not found');
@@ -421,9 +447,12 @@ export class ProductService {
           incomingSkuSet.add(cleanedSku);
         }
 
-        const existingVariants = await queryRunner.manager.find(ProductVariant, {
-          where: { product: { id: product.id } },
-        });
+        const existingVariants = await queryRunner.manager.find(
+          ProductVariant,
+          {
+            where: { product: { id: product.id } },
+          },
+        );
 
         const existingById = new Map(existingVariants.map((v) => [v.id, v]));
         const existingBySku = new Map(existingVariants.map((v) => [v.sku, v]));
@@ -560,10 +589,15 @@ export class ProductService {
             continue;
           }
 
-          const expectedValues = expectedAttributeValues.get(existingAttr.name)!;
+          const expectedValues = expectedAttributeValues.get(
+            existingAttr.name,
+          )!;
           for (const existingValue of existingAttr.values || []) {
             if (!expectedValues.has(existingValue.value)) {
-              await queryRunner.manager.delete(AttributeValue, existingValue.id);
+              await queryRunner.manager.delete(
+                AttributeValue,
+                existingValue.id,
+              );
             }
           }
         }
