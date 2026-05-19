@@ -49,7 +49,7 @@ export class CartService {
       cart = this.cartRepo.create({ userId });
       cart = await this.cartRepo.save(cart);
     }
-    return cart;
+    return cart; 
   }
 
   private async resolveVariant(dto: AddCartItemDto): Promise<ProductVariant> {

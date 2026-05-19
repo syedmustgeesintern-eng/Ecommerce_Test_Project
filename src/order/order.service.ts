@@ -1,18 +1,17 @@
 import {
   BadRequestException,
   ForbiddenException,
-  HttpException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { DataSource, EntityManager, In, QueryRunner, SelectQueryBuilder } from 'typeorm';
-import { CreateOrderDto } from './dto/create-order.dto';
+import { CreateOrderDto, ShippingAddressDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { Order } from './entities/order.entity';
 import { OrderItem } from './entities/order-item.entity';
 import { OrderStatusHistory } from './entities/order-status-history.entity';
 import { OrderStatus } from './enums/order-status.enum';
-import { ShippingAddressOverride } from './types/shipping-address-override.type';
+import type { ShippingAddressSnapshot } from './types/shipping-address-override.type';
 import { ProductVariant } from '../product/entities/product-variant.entity';
 import { User } from '../user/entities/user.entity';
 import { Address } from '../user/entities/address.entity';
@@ -71,22 +70,29 @@ export interface CursorPaginatedOrders {
 export class OrderService {
   constructor(private readonly dataSource: DataSource) {}
 
-private normalizeCursorPagination(options?: CursorPaginationDto): {
-  cursor: string | null;
-  limit: number;
-} {
-  return {
-    cursor: options?.cursor ?? null,
-    limit: Math.min(
-      MAX_LIMIT,
-      Math.max(1, Math.floor(options?.limit ?? DEFAULT_LIMIT)),
-    ),
-  };
-}
+  private decodeCursor(cursor: string): { createdAt: string; id: string } {
+    return JSON.parse(Buffer.from(cursor, 'base64').toString('utf8'));
+  }
 
-  /**
-   * Centralized status transition rules.
-   */
+  private encodeCursor(row: { createdAt: Date; id: string }): string {
+    return Buffer.from(
+      JSON.stringify({ createdAt: row.createdAt.toISOString(), id: row.id }),
+    ).toString('base64');
+  }
+
+  private normalizeCursorPagination(options?: CursorPaginationDto): {
+    cursor: string | null;
+    limit: number;
+  } {
+    return {
+      cursor: options?.cursor ?? null,
+      limit: Math.min(
+        MAX_LIMIT,
+        Math.max(1, Math.floor(options?.limit ?? DEFAULT_LIMIT)),
+      ),
+    };
+  }
+
   private validateStatusTransition(
     current: OrderStatus,
     next: OrderStatus,
@@ -98,7 +104,6 @@ private normalizeCursorPagination(options?: CursorPaginationDto): {
       );
     }
   }
-
 
   private addWhereOrderHasBrandProduct(
     qb: SelectQueryBuilder<Order>,
@@ -147,14 +152,11 @@ private normalizeCursorPagination(options?: CursorPaginationDto): {
     return Math.round(unitPrice * 100) * quantity;
   }
 
-  /** Snapshot map of attribute display name → value at order time. */
   private snapshotVariantAttributes(
     variant: ProductVariant,
   ): Record<string, string> | null {
     const rows = variant.attributeValues ?? [];
-    if (!rows.length) {
-      return null;
-    }
+    if (!rows.length) return null;
 
     const out: Record<string, string> = {};
     for (const vav of rows) {
@@ -182,9 +184,7 @@ private normalizeCursorPagination(options?: CursorPaginationDto): {
       const exists = await queryRunner.manager.exists(Order, {
         where: { orderNumber },
       });
-      if (!exists) {
-        return orderNumber;
-      }
+      if (!exists) return orderNumber;
     }
 
     throw new BadRequestException('Could not allocate unique order number');
@@ -203,41 +203,30 @@ private normalizeCursorPagination(options?: CursorPaginationDto): {
     userId: string,
   ): Promise<void> {
     const exists = await qr.manager.exists(User, { where: { id: userId } });
-    if (!exists) {
-      throw new NotFoundException('User not found');
-    }
+    if (!exists) throw new NotFoundException('User not found');
   }
 
-  /**
-   * Locks variant rows for stock/price, then loads relations.
-   * Postgres rejects FOR UPDATE with LEFT JOIN (TypeORM adds those for relations),
-   * so locking uses a join-free query first; hydration runs in the same transaction.
-   */
   private async loadVariantsForOrderWithWriteLock(
     qr: QueryRunner,
     variantIds: string[],
   ): Promise<Map<string, ProductVariant>> {
-    const locked = await qr.manager
+    const variants = await qr.manager
       .createQueryBuilder(ProductVariant, 'v')
       .where('v.id IN (:...ids)', { ids: variantIds })
-      .setLock('pessimistic_write')
+      .leftJoinAndSelect('v.product', 'product')
+      .leftJoinAndSelect('v.attributeValues', 'av')
+      .leftJoinAndSelect('av.attributeValue', 'avv')
+      .leftJoinAndSelect('avv.attribute', 'attr')
+      .setLock('pessimistic_write', undefined, ['v'])
       .getMany();
 
-    if (locked.length !== variantIds.length) {
-      const found = new Set(locked.map((v) => v.id));
+    if (variants.length !== variantIds.length) {
+      const found = new Set(variants.map((v) => v.id));
       const missing = variantIds.filter((id) => !found.has(id));
       throw new NotFoundException(
         `One or more variants not found: ${missing.join(', ')}`,
       );
     }
-
-    const variants = await qr.manager.find(ProductVariant, {
-      where: { id: In(variantIds) },
-      relations: {
-        product: true,
-        attributeValues: { attributeValue: { attribute: true } },
-      },
-    });
 
     return new Map(variants.map((v) => [v.id, v]));
   }
@@ -320,9 +309,7 @@ private normalizeCursorPagination(options?: CursorPaginationDto): {
       const result = await qr.manager
         .createQueryBuilder()
         .update(ProductVariant)
-        .set({
-          stock: () => '"stock" - :qty',
-        })
+        .set({ stock: () => '"stock" - :qty' })
         .where('"id" = :id', { id: variantId })
         .andWhere('"stock" >= :qty')
         .setParameter('qty', deductQty)
@@ -359,27 +346,95 @@ private normalizeCursorPagination(options?: CursorPaginationDto): {
     }
   }
 
-  private async resolveShippingForOrder(
+  // ─── Shipping address helpers 
+
+  /** Builds an immutable snapshot from a persisted Address row. */
+  private buildOrderShippingSnapshot(addr: Address): ShippingAddressSnapshot {
+    return {
+      fullName: addr.fullName,
+      phoneNumber: addr.phoneNumber,
+      country: addr.country,
+      city: addr.city,
+      state: addr.state ?? null,
+      postalCode: addr.postalCode,
+      streetAddress: addr.streetAddress,
+      addressLabel: addr.addressLabel ?? null,
+    };
+  }
+
+  /**
+   * Persists a new Address for the user.
+   * If setAsDefault (or it is the user's first address), clears old defaults,
+   * marks the new row as default, and updates users.defaultAddressId.
+   * If addressLabel is not provided, auto-generates "Address N" (1-based count).
+   */
+  private async createAddressIfNeeded(
+    queryRunner: QueryRunner,
+    userId: string,
+    input: ShippingAddressDto,
+    setAsDefault?: boolean,
+  ): Promise<Address> {
+    const existingCount = await queryRunner.manager.count(Address, {
+      where: { userId },
+    });
+    const isFirst = existingCount === 0;
+    const shouldBeDefault = isFirst || setAsDefault === true;
+
+    if (setAsDefault === true && !isFirst) {
+      await queryRunner.manager.update(
+        Address,
+        { userId, isDefault: true },
+        { isDefault: false },
+      );
+    }
+
+    const addressLabel =
+      input.addressLabel?.trim() || `Address ${existingCount + 1}`;
+
+    const newAddr = queryRunner.manager.create(Address, {
+      userId,
+      fullName: input.fullName,
+      phoneNumber: input.phoneNumber,
+      country: input.country,
+      city: input.city,
+      state: input.state ?? null,
+      postalCode: input.postalCode,
+      streetAddress: input.streetAddress,
+      addressLabel,
+      isDefault: shouldBeDefault,
+    });
+    const savedAddr = await queryRunner.manager.save(Address, newAddr);
+
+    if (shouldBeDefault) {
+      await queryRunner.manager.update(
+        User,
+        { id: userId },
+        { defaultAddressId: savedAddr.id },
+      );
+    }
+
+    return savedAddr;
+  }
+
+  private async resolveShippingAddress(
     queryRunner: QueryRunner,
     userId: string,
     dto: CreateOrderDto,
-  ): Promise<{
-    shippingAddressId: string | null;
-    shippingAddressOverride: ShippingAddressOverride | null;
-  }> {
+  ): Promise<ShippingAddressSnapshot> {
     const hasAddressId = !!dto.addressId;
-    const hasOverride = !!dto.shippingAddressOverride;
+    const hasInlineAddress = !!dto.shippingAddress;
 
-    if (!hasAddressId && !hasOverride) {
+    if (!hasAddressId && !hasInlineAddress) {
       throw new BadRequestException(
-        'Provide either addressId or shippingAddressOverride',
+        'Provide either addressId or shippingAddress',
       );
     }
-    if (hasAddressId && hasOverride) {
+    if (hasAddressId && hasInlineAddress) {
       throw new BadRequestException(
-        'Provide either addressId or shippingAddressOverride, not both',
+        'Provide either addressId or shippingAddress, not both',
       );
     }
+
     if (hasAddressId) {
       const saved = await queryRunner.manager.findOne(Address, {
         where: { id: dto.addressId, userId },
@@ -389,80 +444,24 @@ private normalizeCursorPagination(options?: CursorPaginationDto): {
           'Shipping address not found or does not belong to you',
         );
       }
-      return { shippingAddressId: dto.addressId!, shippingAddressOverride: null };
+      return this.buildOrderShippingSnapshot(saved);
     }
 
-    const input = dto.shippingAddressOverride!;
-
-    if (dto.saveAddress === true) {
-      const existingCount = await queryRunner.manager.count(Address, {
-        where: { userId },
-      });
-      const isFirst = existingCount === 0;
-
-      const newAddr = queryRunner.manager.create(Address, {
-        userId,
-        fullName: input.fullName,
-        phoneNumber: input.phoneNumber,
-        country: input.country,
-        city: input.city,
-        state: input.state ?? null,
-        postalCode: input.postalCode,
-        streetAddress: input.streetAddress,
-        isDefault: isFirst,
-      });
-      const savedAddr = await queryRunner.manager.save(Address, newAddr);
-
-      if (isFirst) {
-        await queryRunner.manager.update(
-          User,
-          { id: userId },
-          { defaultAddressId: savedAddr.id },
-        );
-      }
-
-      return { shippingAddressId: savedAddr.id, shippingAddressOverride: null };
-    }
-
-    return {
-      shippingAddressId: null,
-      shippingAddressOverride: {
-        fullName: input.fullName,
-        phoneNumber: input.phoneNumber,
-        country: input.country,
-        city: input.city,
-        state: input.state ?? null,
-        postalCode: input.postalCode,
-        streetAddress: input.streetAddress,
-      },
-    };
+    const savedAddr = await this.createAddressIfNeeded(
+      queryRunner,
+      userId,
+      dto.shippingAddress!,
+      dto.setAsDefault,
+    );
+    return this.buildOrderShippingSnapshot(savedAddr);
   }
 
-  buildShippingAddressPayload(
-    order: Order,
-  ): ShippingAddressOverride | null {
-    if (order.shippingAddressOverride) {
-      return order.shippingAddressOverride;
-    }
-    if (order.shippingAddress) {
-      const a = order.shippingAddress;
-      return {
-        fullName: a.fullName,
-        phoneNumber: a.phoneNumber,
-        country: a.country,
-        city: a.city,
-        state: a.state ?? null,
-        postalCode: a.postalCode,
-        streetAddress: a.streetAddress,
-      };
-    }
-    return null;
-  }
+  // ─── Public service methods ───────────────────────────────────────────────
 
-  /**
-   * Creates an order from validated DTO input. Prices and stock are enforced from DB only.
-   */
-  async createOrder(userId: string, dto: CreateOrderDto): Promise<{
+  async createOrder(
+    userId: string,
+    dto: CreateOrderDto,
+  ): Promise<{
     orderId: string;
     orderNumber: string;
     status: OrderStatus;
@@ -491,8 +490,11 @@ private normalizeCursorPagination(options?: CursorPaginationDto): {
 
       const orderNumber = await this.generateUniqueOrderNumber(queryRunner);
 
-      const { shippingAddressId, shippingAddressOverride } =
-        await this.resolveShippingForOrder(queryRunner, userId, dto);
+      const shippingAddress = await this.resolveShippingAddress(
+        queryRunner,
+        userId,
+        dto,
+      );
 
       const orderItems = this.buildOrderItemEntities(
         queryRunner.manager,
@@ -510,8 +512,7 @@ private normalizeCursorPagination(options?: CursorPaginationDto): {
         orderNumber,
         userId,
         user: { id: userId } as User,
-        shippingAddressId: shippingAddressId ?? null,
-        shippingAddressOverride: shippingAddressOverride ?? null,
+        shippingAddress,
         status: OrderStatus.PENDING,
         subtotal: subtotalStr,
         shippingFee: shippingFeeStr,
@@ -538,19 +539,12 @@ private normalizeCursorPagination(options?: CursorPaginationDto): {
       if (queryRunner.isTransactionActive) {
         await queryRunner.rollbackTransaction();
       }
-      if (err instanceof HttpException) {
-        throw err;
-      }
       throw err;
     } finally {
       await queryRunner.release();
     }
   }
 
-  /**
-   * Brand owners may advance/cancel fulfillment only for orders made entirely of their brand's products.
-   * Updates status and appends {@link OrderStatusHistory} in one transaction.
-   */
   async updateOrderStatus(
     actorUserId: string,
     orderId: string,
@@ -563,34 +557,22 @@ private normalizeCursorPagination(options?: CursorPaginationDto): {
         FORBIDDEN_NOT_BRAND_OWNER_STATUS,
       );
 
-      const locked = await manager
+      const order = await manager
         .createQueryBuilder(Order, 'o')
         .where('o.id = :id', { id: orderId })
-        .setLock('pessimistic_write')
+        .leftJoinAndSelect('o.items', 'item')
+        .leftJoinAndSelect('item.product', 'product')
+        .leftJoinAndSelect('product.brand', 'productBrand')
+        .leftJoinAndSelect('item.variant', 'variant')
+        .leftJoinAndSelect('variant.product', 'variantProduct')
+        .leftJoinAndSelect('variantProduct.brand', 'variantProductBrand')
+        .leftJoinAndSelect('o.statusHistory', 'statusHistory')
+        .setLock('pessimistic_write', undefined, ['o'])
         .getOne();
 
-      if (!locked) {
-        throw new NotFoundException('Order not found');
-      }
-
-      const order = await manager.findOne(Order, {
-        where: { id: orderId },
-        relations: {
-          items: {
-            product: { brand: true },
-            variant: { product: { brand: true } },
-          },
-          shippingAddress: true,
-          statusHistory: true,
-        },
-      });
-
-      if (!order) {
-        throw new NotFoundException('Order not found');
-      }
+      if (!order) throw new NotFoundException('Order not found');
 
       this.assertBrandOwnershipOfEveryLine(brandId, order.items);
-
       this.validateStatusTransition(order.status, dto.status);
 
       const previousStatus = order.status;
@@ -606,110 +588,63 @@ private normalizeCursorPagination(options?: CursorPaginationDto): {
       });
       const savedHistory = await manager.save(OrderStatusHistory, history);
 
-      order.statusHistory = [
-        ...(order.statusHistory ?? []),
-        savedHistory,
-      ];
+      order.statusHistory = [...(order.statusHistory ?? []), savedHistory];
       this.sortStatusHistoryNewestFirst(order);
 
       return order;
     });
   }
 
+  async getMyOrders(
+    customerUserId: string,
+    options?: CursorPaginationDto,
+  ): Promise<CursorPaginatedOrders> {
+    const { cursor, limit } = this.normalizeCursorPagination(options);
 
-async getMyOrders(
-  customerUserId: string,
-  options?: CursorPaginationDto,
-): Promise<CursorPaginatedOrders> {
-  const { cursor, limit } =
-    this.normalizeCursorPagination(options);
+    const baseQb = this.dataSource.manager
+      .createQueryBuilder(Order, 'o')
+      .where('o.userId = :userId', { userId: customerUserId })
+      .orderBy('o.createdAt', 'DESC')
+      .addOrderBy('o.id', 'DESC')
+      .take(limit + 1);
 
-  const baseQb = this.dataSource.manager
-    .createQueryBuilder(Order, 'o')
-    .where('o.userId = :userId', {
-      userId: customerUserId,
-    })
-    .orderBy('o.createdAt', 'DESC')
-    .addOrderBy('o.id', 'DESC')
-    .take(limit + 1);
-
-  if (cursor) {
-    const decoded = JSON.parse(
-      Buffer.from(cursor, 'base64').toString('utf8'),
-    ) as {
-      createdAt: string;
-      id: string;
-    };
-
-    baseQb.andWhere(
-      '(o.createdAt, o.id) < (:createdAt, :id)',
-      {
+    if (cursor) {
+      const decoded = this.decodeCursor(cursor);
+      baseQb.andWhere('(o.createdAt, o.id) < (:createdAt, :id)', {
         createdAt: decoded.createdAt,
         id: decoded.id,
+      });
+    }
+
+    const idRows = await baseQb.select(['o.id', 'o.createdAt']).getMany();
+    const hasMore = idRows.length > limit;
+    const paginatedRows = hasMore ? idRows.slice(0, limit) : idRows;
+    const ids = paginatedRows.map((o) => o.id);
+
+    if (!ids.length) {
+      return { data: [], nextCursor: null, limit, hasMore: false };
+    }
+
+    const orders = await this.dataSource.manager.find(Order, {
+      where: { id: In(ids) },
+      relations: {
+        items: { variant: { product: { images: true }, images: true } },
       },
-    );
+    });
+
+    const orderMap = new Map(orders.map((o) => [o.id, o]));
+    const orderedData = ids
+      .map((id) => orderMap.get(id))
+      .filter((o): o is Order => !!o);
+
+    let nextCursor: string | null = null;
+    if (hasMore) {
+      nextCursor = this.encodeCursor(paginatedRows[paginatedRows.length - 1]);
+    }
+
+    return { data: orderedData, nextCursor, limit, hasMore };
   }
 
-  const idRows = await baseQb
-    .select(['o.id', 'o.createdAt'])
-    .getMany();
-
-  const hasMore = idRows.length > limit;
-
-  const paginatedRows = hasMore
-    ? idRows.slice(0, limit)
-    : idRows;
-
-  const ids = paginatedRows.map((o) => o.id);
-
-  if (!ids.length) {
-    return {
-      data: [],
-      nextCursor: null,
-      limit,
-      hasMore: false,
-    };
-  }
-
-  const orders = await this.dataSource.manager.find(Order, {
-    where: {
-      id: In(ids),
-    },
-    relations: {
-      items: { variant: { product: { images: true }, images: true } },
-      shippingAddress: true,
-    },
-  });
-
-  const orderMap = new Map(
-    orders.map((o) => [o.id, o]),
-  );
-
-  const orderedData = ids
-    .map((id) => orderMap.get(id))
-    .filter((o): o is Order => !!o);
-
-  let nextCursor: string | null = null;
-
-  if (hasMore) {
-    const last = paginatedRows[paginatedRows.length - 1];
-
-    nextCursor = Buffer.from(
-      JSON.stringify({
-        createdAt: last.createdAt.toISOString(),
-        id: last.id,
-      }),
-    ).toString('base64');
-  }
-
-  return {
-    data: orderedData,
-    nextCursor,
-    limit,
-    hasMore,
-  };
-}
- 
   async getOrderById(
     customerUserId: string,
     orderId: string,
@@ -718,129 +653,81 @@ async getMyOrders(
       where: { id: orderId, userId: customerUserId },
       relations: {
         items: { product: true, variant: { product: { images: true }, images: true } },
-        shippingAddress: true,
         statusHistory: true,
       },
     });
 
-    if (!order) {
-      throw new NotFoundException('Order not found');
-    }
+    if (!order) throw new NotFoundException('Order not found');
 
     this.sortStatusHistoryNewestFirst(order);
-
     return order;
   }
 
- 
-async getBrandOwnerOrders(
-  actorUserId: string,
-  options?: CursorPaginationDto,
-): Promise<CursorPaginatedOrders> {
-  const { brandId } = await this.requireBrandOwnerContext(
-    this.dataSource.manager,
-    actorUserId,
-    FORBIDDEN_NOT_BRAND_OWNER_LIST,
-  );
-
-  const { cursor, limit } =
-    this.normalizeCursorPagination(options);
-
-  const mgr = this.dataSource.manager;
-  const ord = 'ord';
-
-
-  const baseQb = this.addWhereOrderHasBrandProduct(
-    mgr.createQueryBuilder(Order, ord),
-    ord,
-    brandId,
-  )
-    .orderBy(`${ord}.createdAt`, 'DESC')
-    .addOrderBy(`${ord}.id`, 'DESC')
-    .take(limit + 1);
-
-  if (cursor) {
-    const decoded = JSON.parse(
-      Buffer.from(cursor, 'base64').toString('utf8'),
-    ) as {
-      createdAt: string;
-      id: string;
-    };
-
-    baseQb.andWhere(
-      `(${ord}.createdAt, ${ord}.id) < (:createdAt, :id)`,
-      {
-        createdAt: decoded.createdAt,
-        id: decoded.id,
-      },
+  async getBrandOwnerOrders(
+    actorUserId: string,
+    options?: CursorPaginationDto,
+  ): Promise<CursorPaginatedOrders> {
+    const { brandId } = await this.requireBrandOwnerContext(
+      this.dataSource.manager,
+      actorUserId,
+      FORBIDDEN_NOT_BRAND_OWNER_LIST,
     );
+
+    const { cursor, limit } = this.normalizeCursorPagination(options);
+    const mgr = this.dataSource.manager;
+    const ord = 'ord';
+
+    const baseQb = this.addWhereOrderHasBrandProduct(
+      mgr.createQueryBuilder(Order, ord),
+      ord,
+      brandId,
+    )
+      .orderBy(`${ord}.createdAt`, 'DESC')
+      .addOrderBy(`${ord}.id`, 'DESC')
+      .take(limit + 1);
+
+    if (cursor) {
+      const decoded = this.decodeCursor(cursor);
+      baseQb.andWhere(
+        `(${ord}.createdAt, ${ord}.id) < (:createdAt, :id)`,
+        { createdAt: decoded.createdAt, id: decoded.id },
+      );
+    }
+
+    const idRows = await baseQb
+      .select([`${ord}.id`, `${ord}.createdAt`])
+      .getMany();
+
+    const hasMore = idRows.length > limit;
+    const paginatedRows = hasMore ? idRows.slice(0, limit) : idRows;
+    const ids = paginatedRows.map((o) => o.id);
+
+    if (!ids.length) {
+      return { data: [], nextCursor: null, limit, hasMore: false };
+    }
+
+    const rows = await mgr
+      .createQueryBuilder(Order, ord)
+      .leftJoinAndSelect(`${ord}.items`, 'item')
+      .leftJoinAndSelect('item.variant', 'variant')
+      .leftJoinAndSelect('variant.product', 'variantProduct')
+      .leftJoinAndSelect('variantProduct.images', 'variantProductImages')
+      .leftJoinAndSelect('variant.images', 'variantImages')
+      .leftJoin(`${ord}.user`, 'customer')
+      .addSelect(['customer.id', 'customer.name', 'customer.email'])
+      .where(`${ord}.id IN (:...ids)`, { ids })
+      .getMany();
+
+    const byId = new Map(rows.map((o) => [o.id, o]));
+    const data = ids
+      .map((id) => byId.get(id))
+      .filter((o): o is Order => !!o);
+
+    let nextCursor: string | null = null;
+    if (hasMore) {
+      nextCursor = this.encodeCursor(paginatedRows[paginatedRows.length - 1]);
+    }
+
+    return { data, nextCursor, limit, hasMore };
   }
-
-  const idRows = await baseQb
-    .select([`${ord}.id`, `${ord}.createdAt`])
-    .getMany();
-
-  const hasMore = idRows.length > limit;
-
-  const paginatedRows = hasMore
-    ? idRows.slice(0, limit)
-    : idRows;
-
-  const ids = paginatedRows.map((o) => o.id);
-
-  if (!ids.length) {
-    return {
-      data: [],
-      nextCursor: null,
-      limit,
-      hasMore: false,
-    };
-  }
-
-
-  const rows = await mgr
-    .createQueryBuilder(Order, ord)
-    .leftJoinAndSelect(`${ord}.items`, 'item')
-    .leftJoinAndSelect('item.variant', 'variant')
-    .leftJoinAndSelect('variant.product', 'variantProduct')
-    .leftJoinAndSelect('variantProduct.images', 'variantProductImages')
-    .leftJoinAndSelect('variant.images', 'variantImages')
-    .leftJoinAndSelect(`${ord}.shippingAddress`, 'ship')
-    .leftJoin(`${ord}.user`, 'customer')
-    .addSelect([
-      'customer.id',
-      'customer.name',
-      'customer.email',
-    ])
-    .where(`${ord}.id IN (:...ids)`, { ids })
-    .getMany();
-
-
-  const byId = new Map(rows.map((o) => [o.id, o]));
-
-  const data = ids
-    .map((id) => byId.get(id))
-    .filter((o): o is Order => !!o);
-
-  let nextCursor: string | null = null;
-
-  if (hasMore) {
-    const last =
-      paginatedRows[paginatedRows.length - 1];
-
-    nextCursor = Buffer.from(
-      JSON.stringify({
-        createdAt: last.createdAt.toISOString(),
-        id: last.id,
-      }),
-    ).toString('base64');
-  }
-
-  return {
-    data,
-    nextCursor,
-    limit,
-    hasMore,
-  };
-}
 }

@@ -14,11 +14,8 @@ import {
 } from 'class-validator';
 import { CreateOrderItemDto } from './create-order-item.dto';
 
-/**
- * Inline address used at checkout when the customer does not want to save
- * the address to their profile, or edits a saved address temporarily.
- */
-export class ShippingAddressOverrideDto {
+/** Inline shipping address fields the frontend sends at checkout. */
+export class ShippingAddressDto {
   @IsString()
   @MinLength(1)
   @MaxLength(200)
@@ -54,6 +51,11 @@ export class ShippingAddressOverrideDto {
   @MinLength(1)
   @MaxLength(255)
   streetAddress: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  addressLabel?: string | null;
 }
 
 const MAX_ORDER_LINE_ITEMS = 100;
@@ -66,16 +68,24 @@ export class CreateOrderDto {
   @Type(() => CreateOrderItemDto)
   items: CreateOrderItemDto[];
 
+  /** ID of a saved address from the user's profile. Mutually exclusive with shippingAddress. */
   @IsOptional()
   @IsUUID()
   addressId?: string;
 
+  /** Inline address fields. Use when not selecting a saved address. Mutually exclusive with addressId. */
   @IsOptional()
   @ValidateNested()
-  @Type(() => ShippingAddressOverrideDto)
-  shippingAddressOverride?: ShippingAddressOverrideDto;
+  @Type(() => ShippingAddressDto)
+  shippingAddress?: ShippingAddressDto;
 
+  /** @deprecated Inline addresses are always persisted; this field is ignored. */
   @IsOptional()
   @IsBoolean()
   saveAddress?: boolean;
+
+  /** When true, the inline or resolved address is marked as the user's default. */
+  @IsOptional()
+  @IsBoolean()
+  setAsDefault?: boolean;
 }

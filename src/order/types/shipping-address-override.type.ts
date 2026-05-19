@@ -1,4 +1,5 @@
-export interface ShippingAddressOverride {
+/** Immutable shipping address snapshot stored on every order at checkout time. */
+export interface ShippingAddressSnapshot {
   fullName: string;
   phoneNumber: string;
   country: string;
@@ -6,4 +7,5 @@ export interface ShippingAddressOverride {
   state: string | null;
   postalCode: string;
   streetAddress: string;
+  addressLabel: string | null;
 }

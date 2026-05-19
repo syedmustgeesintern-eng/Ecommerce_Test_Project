@@ -20,7 +20,7 @@ export class Cart {
   userId: string;
 
   @OneToOne(() => User, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'userId' })
+  @JoinColumn({ name: 'userId' }) //refer to the userId ^
   user: User;
 
   @OneToMany(() => CartItem, (item) => item.cart)
