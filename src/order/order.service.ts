@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { v4 as uuidv4 } from 'uuid';
 import { DataSource, EntityManager, In, QueryRunner, SelectQueryBuilder } from 'typeorm';
 import { CreateOrderDto, ShippingAddressDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
@@ -168,26 +169,10 @@ export class OrderService {
     }
     return Object.keys(out).length ? out : null;
   }
-
-  private async generateUniqueOrderNumber(
-    queryRunner: QueryRunner,
-  ): Promise<string> {
-    const datePart = new Date()
-      .toISOString()
-      .slice(0, 10)
-      .replace(/-/g, '');
-
-    for (let attempt = 0; attempt < 12; attempt += 1) {
-      const randomPart = Math.random().toString(36).slice(2, 8).toUpperCase();
-      const orderNumber = `ORD-${datePart}-${randomPart}`;
-
-      const exists = await queryRunner.manager.exists(Order, {
-        where: { orderNumber },
-      });
-      if (!exists) return orderNumber;
-    }
-
-    throw new BadRequestException('Could not allocate unique order number');
+  private generateOrderNumber(): string {
+    const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const randomPart = uuidv4().replace(/-/g, '').slice(0, 6).toUpperCase();
+    return `ORD-${datePart}-${randomPart}`;
   }
 
   private sortStatusHistoryNewestFirst(order: Order): void {
@@ -214,6 +199,8 @@ export class OrderService {
       .createQueryBuilder(ProductVariant, 'v')
       .where('v.id IN (:...ids)', { ids: variantIds })
       .leftJoinAndSelect('v.product', 'product')
+      .leftJoin('product.brand', 'brand')
+      .addSelect(['brand.id', 'brand.shippingFee'])
       .leftJoinAndSelect('v.attributeValues', 'av')
       .leftJoinAndSelect('av.attributeValue', 'avv')
       .leftJoinAndSelect('avv.attribute', 'attr')
@@ -258,9 +245,22 @@ export class OrderService {
     }
   }
 
+  private resolveBrandOwnerShippingFee(
+    variantById: Map<string, ProductVariant>,
+  ): string {
+    const firstVariant = variantById.values().next().value as
+      | ProductVariant
+      | undefined;
+    const brand = firstVariant?.product?.brand;
+    if (!brand) return (0).toFixed(MONEY_PRECISION);
+    const fee = Number(brand.shippingFee ?? 0);
+    return (isNaN(fee) ? 0 : fee).toFixed(MONEY_PRECISION);
+  }
+
   private computeOrderTotalsFromDbPrices(
     lines: CreateOrderDto['items'],
     variantById: Map<string, ProductVariant>,
+    shippingFeeStr: string,
   ): { subtotalStr: string; shippingFeeStr: string; totalStr: string } {
     let subtotalCents = 0;
     for (const line of lines) {
@@ -273,7 +273,6 @@ export class OrderService {
     }
 
     const subtotalStr = (subtotalCents / 100).toFixed(MONEY_PRECISION);
-    const shippingFeeStr = (0).toFixed(MONEY_PRECISION);
     const totalStr = (subtotalCents / 100 + Number(shippingFeeStr)).toFixed(
       MONEY_PRECISION,
     );
@@ -485,10 +484,14 @@ export class OrderService {
       const qtyByVariant = this.aggregateQuantitiesByVariantId(dto.items);
       this.validateStockAvailability(variantById, qtyByVariant);
 
-      const { subtotalStr, shippingFeeStr, totalStr } =
-        this.computeOrderTotalsFromDbPrices(dto.items, variantById);
+      const shippingFeeStr = this.resolveBrandOwnerShippingFee(variantById);
+      const { subtotalStr, totalStr } = this.computeOrderTotalsFromDbPrices(
+        dto.items,
+        variantById,
+        shippingFeeStr,
+      );
 
-      const orderNumber = await this.generateUniqueOrderNumber(queryRunner);
+      const orderNumber = this.generateOrderNumber();
 
       const shippingAddress = await this.resolveShippingAddress(
         queryRunner,

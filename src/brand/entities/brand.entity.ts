@@ -30,6 +30,14 @@ export class Brand {
   @Column({ type: 'enum', enum: ['ACTIVE', 'SUSPENDED'], default: 'ACTIVE' })
   status: string;
 
+  @Column({
+    type: 'decimal',
+    precision: 12,
+    scale: 2,
+    default: '0.00',
+  })
+  shippingFee: string;
+
   @CreateDateColumn()
   created_at: Date;
 

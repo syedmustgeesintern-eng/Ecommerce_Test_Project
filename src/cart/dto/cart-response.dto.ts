@@ -27,7 +27,7 @@ export class CartResponseDto {
   cartId: string;
   items: CartLineResponse[];
   itemCount: number;
-  // subtotal: number;
+  shippingFee: number;
 }
 
 function pickImageUrl(variant: CartItem['variant']): string | null {
@@ -51,6 +51,7 @@ function buildAttributes(variant: CartItem['variant']): Record<string, string> {
 export function mapCartToResponseDto(
   cartId: string,
   items: CartItem[],
+  shippingFee: number = 0,
 ): CartResponseDto {
   const lines: CartLineResponse[] = items.map((row) => {
     const variant = row.variant;
@@ -79,13 +80,11 @@ export function mapCartToResponseDto(
   });
 
   const itemCount = lines.reduce((s, l) => s + l.quantity, 0);
-  // const subtotal =
-  //   Math.round(lines.reduce((s, l) => s + l.lineTotal, 0) * 100) / 100;
 
   return {
     cartId,
     items: lines,
     itemCount,
-    // subtotal,
+    shippingFee,
   };
 }

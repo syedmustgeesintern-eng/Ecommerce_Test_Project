@@ -21,7 +21,9 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { BrandService } from './brand.service';
 import { RegisterBrandDto } from './dto/register-brand.dto';
 import { UpdateBrandDto } from './dto/update-brand.dto';
+import { UpdateShippingFeeDto } from './dto/update-shipping-fee.dto';
 import { RolesGuard } from 'src/utils/guards/roles.guard';
+import type { JwtUser } from 'src/utils/types/jwt-user.type';
 
 @Controller('brand')
 export class BrandController {
@@ -58,6 +60,23 @@ export class BrandController {
     return this.brandService.getBrandDashboard(user);
   }
 
+
+  @Get('shipping-fee')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.BRAND_OWNER)
+  getShippingFee(@CurrentUser() user: JwtUser) {
+    return this.brandService.getShippingFee(user);
+  }
+
+  @Patch('shipping-fee')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.BRAND_OWNER)
+  updateShippingFee(
+    @CurrentUser() user: JwtUser,
+    @Body() dto: UpdateShippingFeeDto,
+  ) {
+    return this.brandService.updateShippingFee(user, dto);
+  }
 
   @Patch(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)

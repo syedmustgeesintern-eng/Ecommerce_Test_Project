@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   InternalServerErrorException,
@@ -17,6 +18,7 @@ import { S3Service } from '../libs/s3/s3.service';
 import { cleanValue } from 'src/utils/helperFunction';
 import { UserService } from 'src/user/user.service';
 import { UpdateBrandDto } from './dto/update-brand.dto';
+import { UpdateShippingFeeDto } from './dto/update-shipping-fee.dto';
 import { JwtUser } from 'src/utils/types/jwt-user.type';
 
 @Injectable()
@@ -164,6 +166,38 @@ export class BrandService {
 
     return brand;
   }
+  async getShippingFee(user: JwtUser): Promise<{ shippingFee: string }> {
+    const brand = await this.brandRepo.findOne({
+      where: { id: user.brandId },
+      select: { id: true, shippingFee: true },
+    });
+
+    if (!brand) throw new NotFoundException('Brand not found');
+
+    return { shippingFee: brand.shippingFee ?? '0.00' };
+  }
+
+  async updateShippingFee(
+    user: JwtUser,
+    dto: UpdateShippingFeeDto,
+  ): Promise<{ shippingFee: string }> {
+    const fee = parseFloat(dto.shippingFee);
+    if (isNaN(fee) || fee < 0) {
+      throw new BadRequestException(
+        'Shipping fee must be a non-negative number',
+      );
+    }
+
+    const shippingFeeStr = fee.toFixed(2);
+    const result = await this.brandRepo.update(user.brandId, {
+      shippingFee: shippingFeeStr,
+    });
+
+    if (!result.affected) throw new NotFoundException('Brand not found');
+
+    return { shippingFee: shippingFeeStr };
+  }
+
   async updateBrand(
     brandId: string,
     dto: UpdateBrandDto,

@@ -28,19 +28,30 @@ export class CartService {
     return this.buildCartResponse(cart.id);
   }
 
+  private resolveBrandOwnerShippingFee(items: CartItem[]): number {
+    const brand = (items[0]?.variant?.product as any)?.brand;
+    if (!brand) return 0;
+    const fee = Number(brand.shippingFee ?? 0);
+    return isNaN(fee) ? 0 : fee;
+  }
+
   private async buildCartResponse(cartId: string): Promise<CartResponseDto> {
     const items = await this.cartItemRepo.find({
       where: { cartId },
       relations: {
         variant: {
-          product: { images: true },
+          product: { images: true, brand: true },
           images: true,
           attributeValues: { attributeValue: { attribute: true } },
         },
       },
       order: { createdAt: 'ASC' },
     });
-    return mapCartToResponseDto(cartId, items);
+
+    const shippingFee =
+      items.length > 0 ? this.resolveBrandOwnerShippingFee(items) : 0;
+
+    return mapCartToResponseDto(cartId, items, shippingFee);
   }
 
   private async getOrCreateCartEntity(userId: string): Promise<Cart> {

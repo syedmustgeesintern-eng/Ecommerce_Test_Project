@@ -7,7 +7,6 @@ export class RolesGuard implements CanActivate {
   constructor(private reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
-      console.log('🔥 JwtAuthGuard HIT');
 
     const requiredRoles = this.reflector.getAllAndOverride<Role[]>(ROLES_KEY, [
       context.getHandler(),
@@ -18,10 +17,7 @@ export class RolesGuard implements CanActivate {
 
     const request = context.switchToHttp().getRequest();
     const user = request.user;
-    console.log('👤 User from token:', user);
-    const hasRole = requiredRoles.includes(user.role);
 
-    console.log('🎯 Has required role?', hasRole);
     if (!user || !user.role) {
       return false;
     }
